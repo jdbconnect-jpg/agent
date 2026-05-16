@@ -1,0 +1,29 @@
+{
+  "name": "jepq-100-api-openai-responses-api",
+  "version": "1.0.0",
+  "description": "JEPQ finance short-form video generator and YouTube upload agent using OpenAI Responses API.",
+  "main": "src/agent.mjs",
+  "scripts": {
+    "generate": "node src/agent.mjs generate",
+    "render": "node src/agent.mjs render",
+    "stock": "node src/agent.mjs stock",
+    "shotstack": "node src/agent.mjs shotstack",
+    "shotstack:status": "node src/agent.mjs shotstack:status",
+    "upload": "node src/agent.mjs upload",
+    "run": "node src/agent.mjs run",
+    "auth:youtube": "node src/youtubeAuth.mjs",
+    "test": "node src/agent.mjs dry-run"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "execa": "^9.6.1",
+    "googleapis": "^171.4.0",
+    "openai": "^6.38.0",
+    "sharp": "^0.34.5",
+    "zod": "^4.4.3"
+  }
+}

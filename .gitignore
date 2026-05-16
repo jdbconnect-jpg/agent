@@ -1,0 +1,6 @@
+node_modules/
+.env
+youtube-oauth-token.json
+out/
+assets/reference/
+.DS_Store
