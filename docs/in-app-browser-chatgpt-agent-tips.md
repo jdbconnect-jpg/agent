@@ -168,6 +168,36 @@ npm run korea:etf-plan
 npm run longform:korea-etfs
 ```
 
+Gemini 8초 무음 컷어웨이 준비:
+
+```bash
+npm run gemini:video-prep -- --scenes=1,5,9
+```
+
+이 명령은 Gemini 하루 생성 제한을 고려해 최대 3개 씬만 준비한다.
+
+- Gemini 업로드용 입력 이미지: `out/gemini-video-inputs/scene-XX.png`
+- Gemini 붙여넣기용 프롬프트: `out/gemini-video-prompts.md`
+- 저장해야 할 결과 영상 위치: `out/gemini-videos/scene-XX.mp4`
+
+Gemini에서는 각 이미지를 올리고 해당 씬 프롬프트를 붙여넣는다. 프롬프트에는 반드시 8초, 16:9, 무음, 카메라 흔들림 금지, 읽을 수 있는 글자/숫자/로고 금지, 하단 자막 안전 영역 유지 조건을 넣는다.
+
+다운로드한 Gemini 영상은 아래처럼 저장한다.
+
+```text
+out/gemini-videos/scene-01.mp4
+out/gemini-videos/scene-05.mp4
+out/gemini-videos/scene-09.mp4
+```
+
+이후 렌더:
+
+```bash
+OPENAI_TTS_VOICE=nova npm run longform:matched-render
+```
+
+`src/alignedLongformMedia.mjs`는 `out/gemini-videos/scene-XX.mp4`를 먼저 찾고, 없으면 `out/heygen/scene-XX.mp4`를 찾는다. 컷어웨이 영상은 최종 합성에서 `-an` 옵션으로 오디오를 제거하므로, Gemini가 음성을 붙여도 유튜브 영상에는 무음 비주얼로만 들어간다.
+
 이번 in-app browser 방식은 현재 Codex Browser 플러그인에서 직접 진행한 수동-자동 혼합 흐름이다. 다음 단계에서는 이를 별도 스크립트로 감싸서 “스크립트 생성 → 이미지 생성 → asset 저장 → 렌더”를 한 명령으로 묶는 것이 좋다.
 
 ## 다음 개선 포인트

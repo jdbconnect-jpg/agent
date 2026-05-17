@@ -26,6 +26,7 @@
     "chatgpt:chrome-longform-all": "CHATGPT_CDP_URL=http://127.0.0.1:9222 node src/chatgptCdpLongform.mjs all",
     "longform:browser-render": "node src/chatgptCdpLongform.mjs render",
     "longform:matched-render": "node src/chatgptCdpLongform.mjs render --matched",
+    "gemini:video-prep": "node src/geminiVideoPrep.mjs",
     "korea:etf-plan": "node src/koreaEtfPlan.mjs plan",
     "longform:korea-etfs": "node src/koreaEtfPlan.mjs render",
     "batch:10": "node src/batchTestVideos.mjs",

@@ -50,6 +50,15 @@ function sceneAssetDirForPlan(plan) {
   return path.join(outDir, `ai-scenes-${plan.slug || 'browser-longform'}`);
 }
 
+function optionalCutawayPath(sceneIndex) {
+  const sceneFile = `scene-${String(sceneIndex + 1).padStart(2, '0')}.mp4`;
+  const candidates = [
+    path.join(outDir, 'gemini-videos', sceneFile),
+    path.join(outDir, 'heygen', sceneFile),
+  ];
+  return candidates.find((file) => existsSync(file)) || null;
+}
+
 function top5ByTicker(plan) {
   const map = new Map();
   for (const item of plan.research?.top5 || []) {
@@ -188,9 +197,9 @@ function renderOverlaySvg(scene, plan, sentence, sceneIndex) {
   <svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <linearGradient id="bottom" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0" stop-color="#000" stop-opacity=".26"/>
-        <stop offset=".42" stop-color="#000" stop-opacity=".32"/>
-        <stop offset="1" stop-color="#000" stop-opacity=".9"/>
+        <stop offset="0" stop-color="#000" stop-opacity=".04"/>
+        <stop offset=".5" stop-color="#000" stop-opacity=".08"/>
+        <stop offset="1" stop-color="#000" stop-opacity=".56"/>
       </linearGradient>
       <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
         <feDropShadow dx="5" dy="6" stdDeviation="0" flood-color="#000" flood-opacity=".95"/>
@@ -209,23 +218,35 @@ function renderOverlaySvg(scene, plan, sentence, sceneIndex) {
 }
 
 function renderThumbnailSvg(plan, scenePath) {
+  const eyebrow = /국장|한국|KODEX|TIGER|ACE/i.test(`${plan.title} ${plan.description}`) ? '국장 ETF TOP 5' : 'ETF TOP 5';
+  const headlineLines = ['초보자도', '이해되는'];
+  const warningLines = ['따라 사기 전 체크'];
   return `
   <svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
     <defs>
+      <linearGradient id="shade" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0" stop-color="#000" stop-opacity=".88"/>
+        <stop offset=".55" stop-color="#000" stop-opacity=".34"/>
+        <stop offset="1" stop-color="#000" stop-opacity=".06"/>
+      </linearGradient>
       <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
         <feDropShadow dx="7" dy="8" stdDeviation="0" flood-color="#000" flood-opacity=".95"/>
       </filter>
     </defs>
     <style>
       text { font-family: "Apple SD Gothic Neo", "Noto Sans CJK KR", "Noto Sans KR", Arial, sans-serif; font-weight: 900; letter-spacing: 0; }
-      .big { font-size: 78px; fill: #ffe200; filter: url(#shadow); paint-order: stroke; stroke: #000; stroke-width: 6px; }
-      .sub { font-size: 50px; fill: #fff; filter: url(#shadow); paint-order: stroke; stroke: #000; stroke-width: 5px; }
+      .eyebrow { font-size: 42px; fill: #050505; }
+      .big { font-size: 102px; fill: #ffe200; filter: url(#shadow); paint-order: stroke; stroke: #000; stroke-width: 7px; }
+      .sub { font-size: 54px; fill: #fff; filter: url(#shadow); paint-order: stroke; stroke: #000; stroke-width: 5px; }
     </style>
     <image href="${scenePath}" width="${W}" height="${H}" preserveAspectRatio="xMidYMid slice"/>
-    <rect width="${W}" height="${H}" fill="#000" opacity=".42"/>
-    <rect x="44" y="372" width="1192" height="236" rx="10" fill="#050505" opacity=".82"/>
-    <text x="78" y="466" class="big">${escapeXml(plan.thumbnailText?.[0] || 'ETF TOP 5')}</text>
-    <text x="78" y="550" class="sub">${escapeXml(plan.thumbnailText?.[2] || '따라 사면 위험?')}</text>
+    <rect width="${W}" height="${H}" fill="url(#shade)"/>
+    <rect x="58" y="70" width="382" height="72" rx="8" fill="#ffe200"/>
+    <text x="249" y="119" class="eyebrow" text-anchor="middle">${escapeXml(eyebrow)}</text>
+    <rect x="58" y="174" width="650" height="322" rx="10" fill="#050505" opacity=".72"/>
+    ${headlineLines.map((line, i) => `<text x="92" y="${285 + i * 104}" class="big">${escapeXml(line)}</text>`).join('')}
+    <rect x="58" y="530" width="760" height="112" rx="8" fill="#050505" opacity=".86"/>
+    ${warningLines.map((line, i) => `<text x="92" y="${602 + i * 56}" class="sub">${escapeXml(line)}</text>`).join('')}
   </svg>`;
 }
 
@@ -266,23 +287,40 @@ export async function renderMatchedLongformVideo(plan) {
       const overlayPath = path.join(framesDir, `matched-overlay-${String(sceneIndex).padStart(2, '0')}-${String(sentenceIndex).padStart(2, '0')}.png`);
       await sharp(Buffer.from(renderOverlaySvg(scene, plan, sentence, sceneIndex))).png().toFile(overlayPath);
       const clipPath = path.join(sceneVideoDir, `scene-${String(sceneIndex).padStart(2, '0')}-${String(sentenceIndex).padStart(2, '0')}.mp4`);
-      const frames = Math.round(duration * 30);
-      const zoom = `zoompan=z='min(zoom+0.00012,1.025)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=${W}x${H}:fps=30`;
-      execFileSync('ffmpeg', [
-        '-y',
-        '-loop', '1', '-i', imagePaths[sceneIndex],
-        '-loop', '1', '-i', overlayPath,
-        '-t', String(duration),
-        '-filter_complex',
-      `[0:v]scale=1536:864:force_original_aspect_ratio=increase,crop=1536:864,gblur=sigma=1.2,eq=brightness=-0.18:saturation=0.72,${zoom}[bg];[bg][1:v]overlay=0:0,format=yuv420p[v]`,
-        '-map', '[v]',
-        '-an',
-        '-r', '30',
-        '-c:v', 'libx264',
-        '-crf', '18',
-        '-preset', 'medium',
-        clipPath,
-      ], { stdio: 'ignore' });
+      const cutawayPath = sentenceIndex === 0 ? optionalCutawayPath(sceneIndex) : null;
+      if (cutawayPath) {
+        execFileSync('ffmpeg', [
+          '-y',
+          '-stream_loop', '-1', '-i', cutawayPath,
+          '-loop', '1', '-i', overlayPath,
+          '-t', String(duration),
+          '-filter_complex',
+          `[0:v]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},eq=brightness=0.08:saturation=1.04[bg];[bg][1:v]overlay=0:0,format=yuv420p[v]`,
+          '-map', '[v]',
+          '-an',
+          '-r', '30',
+          '-c:v', 'libx264',
+          '-crf', '18',
+          '-preset', 'medium',
+          clipPath,
+        ], { stdio: 'ignore' });
+      } else {
+        execFileSync('ffmpeg', [
+          '-y',
+          '-loop', '1', '-i', imagePaths[sceneIndex],
+          '-loop', '1', '-i', overlayPath,
+          '-t', String(duration),
+          '-filter_complex',
+          `[0:v]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},gblur=sigma=0.25,eq=brightness=0.12:saturation=1.05[bg];[bg][1:v]overlay=0:0,format=yuv420p[v]`,
+          '-map', '[v]',
+          '-an',
+          '-r', '30',
+          '-c:v', 'libx264',
+          '-crf', '18',
+          '-preset', 'medium',
+          clipPath,
+        ], { stdio: 'ignore' });
+      }
       subclips.push(clipPath);
     }
 
