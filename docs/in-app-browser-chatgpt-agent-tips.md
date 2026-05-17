@@ -2,6 +2,23 @@
 
 이 문서는 Codex 안의 in-app browser에서 ChatGPT를 열고, 영상용 스크립트와 씬 이미지를 가져오는 에이전트를 만들 때의 실전 팁을 정리한 것이다.
 
+## 기본 정책
+
+다음 작업부터 ChatGPT, Gemini, YouTube Studio처럼 사용자가 화면에서 로그인 상태를 확인하거나 결과물을 직접 봐야 하는 브라우저 작업은 Codex in-app browser를 기본으로 사용한다.
+
+외부 Chrome/CDP 자동화는 아래 경우에만 보조 수단으로 사용한다.
+
+- Codex in-app browser에서 파일 다운로드나 page asset 추출이 막힌 경우
+- 장시간 반복 입력처럼 사용자가 명시적으로 외부 Chrome 자동화를 허용한 경우
+- 이미 로그인된 in-app browser 세션이 없고, 작업을 중단하지 않기 위해 임시 우회가 필요한 경우
+
+브라우저 자동화 우선순위:
+
+1. Codex in-app browser에서 현재 탭 또는 새 탭을 열어 진행한다.
+2. 사용자가 보고 있는 로그인 세션과 같은 화면에서 프롬프트 입력, 결과 확인, 이미지 저장을 처리한다.
+3. 이미지/영상 후처리, 리사이즈, 렌더링, FFmpeg 작업은 로컬 Node 스크립트에서 처리한다.
+4. 외부 Chrome/CDP를 썼다면 최종 보고에 그 이유를 짧게 남긴다.
+
 ## 핵심 흐름
 
 1. Codex in-app browser에서 ChatGPT 탭을 연다.
