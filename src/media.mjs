@@ -175,9 +175,19 @@ function renderThumbnailSvg(plan) {
 
 export async function synthesizeNarration(plan) {
   const narration = plan.scenes.map((scene) => scene.narration).join('\n\n');
+  const spokenNarration = narration
+    .replace(/(^|[\n\r]|[,.!?]\s*)이\s+ETF/g, '$1이 티 에프')
+    .replace(/\bETF\b/g, '이 티 에프')
+    .replace(/\bETFs\b/g, '이 티 에프들')
+    .replace(/\bJEPQ\b/g, '제이 이 피 큐')
+    .replace(/\bSCHD\b/g, '에스 씨 에이치 디')
+    .replace(/\bS&P\s*500\b/g, '에스 앤 피 오백')
+    .replace(/\bQQQ\b/g, '큐 큐 큐');
   const narrationPath = path.join(outDir, 'narration.txt');
+  const spokenNarrationPath = path.join(outDir, 'narration-tts.txt');
   const audioPath = path.join(outDir, 'narration.mp3');
   writeFileSync(narrationPath, narration);
+  writeFileSync(spokenNarrationPath, spokenNarration);
 
   const totalDuration = plan.scenes.reduce((sum, scene) => sum + Number(scene.durationSec || 8), 0);
 
@@ -190,7 +200,7 @@ export async function synthesizeNarration(plan) {
         accept: 'audio/mpeg',
       },
       body: JSON.stringify({
-        text: narration,
+        text: spokenNarration,
         model_id: config.elevenLabs.modelId,
         voice_settings: {
           stability: 0.52,
@@ -206,6 +216,16 @@ export async function synthesizeNarration(plan) {
   }
 
   if (!config.openaiApiKey) {
+    const aiffPath = path.join(outDir, 'narration-system.aiff');
+    const systemVoice = process.env.SYSTEM_TTS_VOICE || 'Yuna';
+    const systemRate = process.env.SYSTEM_TTS_RATE || '205';
+    try {
+      execFileSync('say', ['-v', systemVoice, '-r', systemRate, '-o', aiffPath, '-f', spokenNarrationPath], { stdio: 'ignore' });
+      execFileSync('ffmpeg', ['-y', '-i', aiffPath, '-codec:a', 'libmp3lame', '-b:a', '128k', audioPath], { stdio: 'ignore' });
+      return { audioPath, narrationPath, aiVoice: false, provider: 'system-say' };
+    } catch {
+      // Fall back to silent audio if local speech synthesis is unavailable.
+    }
     execFileSync('ffmpeg', [
       '-y', '-f', 'lavfi', '-i', `anullsrc=channel_layout=stereo:sample_rate=44100`,
       '-t', String(totalDuration), '-q:a', '9', '-acodec', 'libmp3lame', audioPath,
@@ -217,7 +237,7 @@ export async function synthesizeNarration(plan) {
   const speech = await client.audio.speech.create({
     model: config.ttsModel,
     voice: config.ttsVoice,
-    input: narration,
+    input: spokenNarration,
     response_format: 'mp3',
   });
   const buffer = Buffer.from(await speech.arrayBuffer());

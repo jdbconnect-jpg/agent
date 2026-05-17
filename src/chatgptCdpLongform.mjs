@@ -64,7 +64,7 @@ async function getChatGptTab() {
   let tabs = await fetch(`${cdpUrl}/json/list`).then((res) => res.json());
   let tab = tabs.find((item) => item.url?.includes('chatgpt.com') && item.type === 'page');
   if (!tab) {
-    await fetch(`${cdpUrl}/json/new?${encodeURIComponent('https://chatgpt.com/')}`).catch(() => null);
+    await fetch(`${cdpUrl}/json/new?${encodeURIComponent('https://chatgpt.com/')}`, { method: 'PUT' }).catch(() => null);
     await sleep(1500);
     tabs = await fetch(`${cdpUrl}/json/list`).then((res) => res.json());
     tab = tabs.find((item) => item.url?.includes('chatgpt.com') && item.type === 'page');
@@ -405,8 +405,11 @@ async function waitForImageCountStable(cdp) {
 async function waitForNewLargeImage(cdp, previousSources = []) {
   const deadline = Date.now() + 480_000;
   const previous = new Set(previousSources);
+  const previousCount = previousSources.length;
+  let sawGeneration = false;
   while (Date.now() < deadline) {
     const data = await evaluate(cdp, `(async () => {
+      const isGenerating = !!document.querySelector('[data-testid="stop-button"]');
       const images = Array.from(document.images)
         .filter((img) => {
           const src = img.currentSrc || img.src || '';
@@ -416,7 +419,8 @@ async function waitForNewLargeImage(cdp, previousSources = []) {
         .map((img) => ({ src: img.currentSrc || img.src, alt: img.alt || '', width: img.naturalWidth, height: img.naturalHeight }));
       const previous = new Set(${JSON.stringify(previousSources)});
       const fresh = images.filter((img) => !previous.has(img.src));
-      const picked = fresh.at(-1) || (!document.querySelector('[data-testid="stop-button"]') ? images.at(-1) : null);
+      const picked = fresh.at(-1) || (!isGenerating && images.length > ${previousCount} ? images.at(-1) : null);
+      if (isGenerating) return { isGenerating, imageCount: images.length, base64: null };
       if (!picked) return null;
       try {
         const response = await fetch(picked.src);
@@ -432,10 +436,11 @@ async function waitForNewLargeImage(cdp, previousSources = []) {
         return null;
       }
     })()`, { awaitPromise: true }).catch(() => null);
+    if (data?.isGenerating) sawGeneration = true;
     if (data?.base64) return data;
     await sleep(3000);
   }
-  throw new Error('Timed out waiting for a new ChatGPT image.');
+  throw new Error(`Timed out waiting for a new ChatGPT image. Generation observed: ${sawGeneration ? 'yes' : 'no'}.`);
 }
 
 async function saveSceneImage(imageData, targetPath) {
