@@ -4,3 +4,5 @@ youtube-oauth-token.json
 out/
 assets/reference/
 .DS_Store
+.chatgpt-browser-profile*/
+.chatgpt-chrome-cdp-profile/
