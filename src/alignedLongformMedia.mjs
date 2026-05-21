@@ -57,12 +57,14 @@ function splitLongCaption(text, pieces) {
 function buildCaptionSegments(scene, sceneDuration) {
   const minCut = Number(process.env.MIN_SCENE_CUT_SEC || 5);
   const maxCut = Number(process.env.MAX_SCENE_CUT_SEC || 12);
+  const oneLine = process.env.ONE_LINE_CAPTIONS === '1';
+  const maxCaptionChars = oneLine ? 42 : 68;
   const sentences = splitSentences(scene.narration);
   const weights = sentences.map((sentence) => Math.max(8, sentence.length));
   const totalWeight = weights.reduce((sum, value) => sum + value, 0);
   const rawSegments = sentences.flatMap((sentence, sentenceIndex) => {
     const duration = Math.max(2.8, sceneDuration * (weights[sentenceIndex] / totalWeight));
-    const pieces = Math.max(1, Math.ceil(duration / maxCut));
+    const pieces = Math.max(1, Math.ceil(duration / maxCut), Math.ceil(sentence.length / maxCaptionChars));
     const captions = splitLongCaption(sentence, pieces);
     return captions.map((caption, pieceIndex) => ({
       caption,
@@ -75,7 +77,9 @@ function buildCaptionSegments(scene, sceneDuration) {
   const segments = [];
   for (const segment of rawSegments) {
     const previous = segments.at(-1);
-    if (previous && (previous.duration < minCut || segment.duration < minCut) && previous.duration + segment.duration <= maxCut) {
+    const mergedCaption = previous ? `${previous.caption} ${segment.caption}`.trim() : '';
+    const canMergeCaption = !oneLine || mergedCaption.length <= maxCaptionChars;
+    if (previous && canMergeCaption && (previous.duration < minCut || segment.duration < minCut) && previous.duration + segment.duration <= maxCut) {
       previous.caption = `${previous.caption} ${segment.caption}`.trim();
       previous.duration += segment.duration;
       continue;
@@ -86,7 +90,8 @@ function buildCaptionSegments(scene, sceneDuration) {
   if (segments.length > 1 && segments.at(-1).duration < minCut) {
     const last = segments.pop();
     const previous = segments.at(-1);
-    if (previous.duration + last.duration <= maxCut) {
+    const mergedCaption = `${previous.caption} ${last.caption}`.trim();
+    if ((!oneLine || mergedCaption.length <= maxCaptionChars) && previous.duration + last.duration <= maxCut) {
       previous.caption = `${previous.caption} ${last.caption}`.trim();
       previous.duration += last.duration;
     } else {
@@ -115,10 +120,21 @@ function buildCaptionSegments(scene, sceneDuration) {
     segment.duration += borrowed;
   }
 
+  const durationTotal = segments.reduce((sum, segment) => sum + segment.duration, 0);
+  if (durationTotal > 0 && Math.abs(durationTotal - sceneDuration) > 0.001) {
+    const ratio = sceneDuration / durationTotal;
+    for (const segment of segments) segment.duration *= ratio;
+    const correctedTotal = segments.reduce((sum, segment) => sum + segment.duration, 0);
+    segments[segments.length - 1].duration += sceneDuration - correctedTotal;
+  }
+
   return segments.map((segment, index) => ({ ...segment, cutIndex: index }));
 }
 
 function staticCropFilter(cutIndex) {
+  if (process.env.STABLE_SCENE_CROP === '1') {
+    return `scale=1320:742:force_original_aspect_ratio=increase,crop=${W}:${H}:(iw-${W})/2:(ih-${H})/2`;
+  }
   const positions = [
     '0:0',
     '(iw-1280)/2:(ih-720)/2',
@@ -262,7 +278,8 @@ function sceneAccent(scene) {
 }
 
 function captionBlock(sentence) {
-  const lines = wrap(sentence, 34, 2);
+  const oneLine = process.env.ONE_LINE_CAPTIONS === '1';
+  const lines = wrap(sentence, oneLine ? 48 : 34, oneLine ? 1 : 2);
   const y = lines.length > 1 ? 604 : 628;
   return `
     <g>
@@ -288,6 +305,8 @@ function simpleTitle(scene, plan) {
 }
 
 function renderOverlaySvg(scene, plan, sentence, sceneIndex) {
+  const disableBottomGradient = process.env.NO_BOTTOM_GRADIENT === '1';
+  const hideSceneTitle = process.env.HIDE_SCENE_TITLE === '1';
   return `
   <svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
     <defs>
@@ -305,9 +324,9 @@ function renderOverlaySvg(scene, plan, sentence, sceneIndex) {
       .simpleTitle { font-size: 42px; filter: url(#shadow); paint-order: stroke; stroke: #000; stroke-width: 4px; }
       .caption { font-size: 36px; fill: #fff; filter: url(#shadow); paint-order: stroke; stroke: #000; stroke-width: 4px; }
     </style>
-    <rect width="${W}" height="${H}" fill="url(#bottom)"/>
+    ${disableBottomGradient ? '' : `<rect width="${W}" height="${H}" fill="url(#bottom)"/>`}
     <rect x="0" y="0" width="${W}" height="${H}" fill="none" stroke="#050505" stroke-width="22"/>
-    ${simpleTitle(scene, plan)}
+    ${hideSceneTitle ? '' : simpleTitle(scene, plan)}
     ${captionBlock(sentence)}
   </svg>`;
 }
@@ -380,9 +399,41 @@ function renderThumbnailSvg(plan, scenePath) {
 }
 
 function allocateDurations(plan, audioDuration) {
+  const minScene = Number(process.env.MIN_SCENE_DURATION_SEC || process.env.MIN_SCENE_CUT_SEC || 5);
+  const maxScene = Number(process.env.MAX_SCENE_DURATION_SEC || process.env.MAX_SCENE_CUT_SEC || 12);
+  const sceneCount = plan.scenes.length;
   const weights = plan.scenes.map((scene) => Math.max(1, scene.narration.length));
   const totalWeight = weights.reduce((sum, value) => sum + value, 0);
-  return weights.map((weight) => Math.max(8, audioDuration * (weight / totalWeight)));
+  if (audioDuration <= minScene * sceneCount) {
+    return weights.map((weight) => audioDuration * (weight / totalWeight));
+  }
+
+  const durations = weights.map(() => minScene);
+  let remaining = audioDuration - minScene * sceneCount;
+  const open = new Set(weights.map((_, index) => index));
+
+  while (remaining > 0.001 && open.size) {
+    const openWeight = [...open].reduce((sum, index) => sum + weights[index], 0);
+    let distributed = 0;
+    for (const index of [...open]) {
+      const room = maxScene - durations[index];
+      const add = Math.min(room, remaining * (weights[index] / openWeight));
+      durations[index] += add;
+      distributed += add;
+      if (durations[index] >= maxScene - 0.001) open.delete(index);
+    }
+    if (distributed <= 0.001) break;
+    remaining -= distributed;
+  }
+
+  if (remaining > 0.001) {
+    const extra = remaining / sceneCount;
+    for (let index = 0; index < durations.length; index += 1) durations[index] += extra;
+  }
+
+  const correction = audioDuration - durations.reduce((sum, value) => sum + value, 0);
+  durations[durations.length - 1] += correction;
+  return durations;
 }
 
 export async function renderMatchedLongformVideo(plan) {
@@ -426,9 +477,10 @@ export async function renderMatchedLongformVideo(plan) {
       inputs.push('-loop', '1', '-i', overlayPath);
     }
 
+    const imageBrightness = Number(process.env.IMAGE_BRIGHTNESS ?? (cutawayPath ? 0.08 : 0.12));
     const baseFilter = cutawayPath
-      ? `[0:v]${staticCropFilter(0)},eq=brightness=0.08:saturation=1.04[bg0]`
-      : `[0:v]${staticCropFilter(0)},gblur=sigma=0.25,eq=brightness=0.12:saturation=1.05[bg0]`;
+      ? `[0:v]${staticCropFilter(0)},eq=brightness=${imageBrightness}:saturation=1.04[bg0]`
+      : `[0:v]${staticCropFilter(0)},gblur=sigma=0.25,eq=brightness=${imageBrightness}:saturation=1.05[bg0]`;
     const overlayFilters = segments.map((segment, index) => {
       const inputLabel = index === 0 ? 'bg0' : `bg${index}`;
       const outputLabel = index === segments.length - 1 ? 'v' : `bg${index + 1}`;
