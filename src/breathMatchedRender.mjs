@@ -70,7 +70,7 @@ function splitCaptionSegments(text, maxChars = 34) {
     }
     if (line) chunks.push(line);
   }
-  return chunks.length ? chunks.slice(0, 4) : [String(text ?? '').trim()].filter(Boolean);
+  return chunks.length ? chunks.slice(0, 8) : [String(text ?? '').trim()].filter(Boolean);
 }
 
 function imageDir(plan) {
